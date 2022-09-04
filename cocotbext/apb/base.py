@@ -261,7 +261,7 @@ class APBMonitor(BusMonitor):
                 transaction.start_time = cocotb.utils.get_sim_time('ns')
 
                 # find out if there's an error from the slave
-                if self.bus.PSLVERR.value.integer:
+                if hasattr(bus,'PSLVERR') and self.bus.PSLVERR.value.integer:
                     transaction.error = True
 
                 # signal to the callback
@@ -386,19 +386,19 @@ class APBMasterDriver(BusDriver):
                 current_transaction.start_time = cocotb.utils.get_sim_time('ns')
 
                 # assign values in the control phase
-                self.bus.PSEL   <= 1
-                self.bus.PADDR  <= current_transaction.address
-                self.bus.PWRITE <= pwrite.index(current_transaction.direction)
+                self.bus.PSEL.value = 1
+                self.bus.PADDR.value = current_transaction.address
+                self.bus.PWRITE.value = pwrite.index(current_transaction.direction)
 
                 # create the PSTRB signal
                 pstrb_int = 0
                 for i, pstrb_i in enumerate(current_transaction.strobe):
                     pstrb_int += pstrb_i << i
-                self.bus.PSTRB  <= pstrb_int
+                self.bus.PSTRB.value = pstrb_int
 
                 # write the data to the bus
                 if current_transaction.direction == 'WRITE':
-                    self.bus.PWDATA <= current_transaction.data
+                    self.bus.PWDATA.value = current_transaction.data
 
                 # update state
                 state = 'ACCESS'
@@ -406,7 +406,7 @@ class APBMasterDriver(BusDriver):
             elif state == 'ACCESS':
 
                 # tell the slave we're ready for the access phase
-                self.bus.PENABLE <= 1
+                self.bus.PENABLE.value = 1
 
                 state = 'SAMPLE'
 
@@ -419,7 +419,7 @@ class APBMasterDriver(BusDriver):
                 if self.bus.PREADY.value.integer:
 
                     # check if the slave is asserting an error
-                    if self.bus.PSLVERR.value.integer:
+                    if hasattr(bus,'PSLVERR') and self.bus.PSLVERR.value.integer:
                         current_transaction.error = True
 
                     # if this is a read we should sample the data
@@ -431,13 +431,13 @@ class APBMasterDriver(BusDriver):
                         state = 'SETUP'
                     else:
                         state = 'IDLE'
-                    self.bus.PENABLE <= 0
+                    self.bus.PENABLE.value = 0
 
         # reset the bus signals
-        self.bus.PWDATA  <= 0
-        self.bus.PWRITE  <= 0
-        self.bus.PSEL    <= 0
-        self.bus.PENABLE <= 0
+        self.bus.PWDATA.value = 0
+        self.bus.PWRITE.value = 0
+        self.bus.PSEL.value = 0
+        self.bus.PENABLE.value = 0
 
         self.transfer_busy = False
 
@@ -492,7 +492,8 @@ class APBSlaveDriver(BusMonitor):
         # initialise all outputs to zero
         self.bus.PRDATA.setimmediatevalue(0)
         self.bus.PREADY.setimmediatevalue(0)
-        self.bus.PSLVERR.setimmediatevalue(0)
+        if hasattr(bus,'PSLVERR'):
+            self.bus.PSLVERR.setimmediatevalue(0)
 
         # store the default registers value
         self.registers_init = registers
@@ -523,7 +524,7 @@ class APBSlaveDriver(BusMonitor):
         await RisingEdge(self.clock)
 
         # default to ready
-        self.bus.PREADY <= 1
+        self.bus.PREADY.value = 1
         state = 'IDLE'
 
         while True:
@@ -544,28 +545,30 @@ class APBSlaveDriver(BusMonitor):
 
                     # insert a wait state?
                     if random.random() < self.random_ready_probability:
-                        self.bus.PREADY <= 0
+                        self.bus.PREADY.value = 0
                         state = 'IDLE'
                     else:
 
                         # error in transaction?
                         if random.random() < self.random_error_probability:
-                            self.bus.PRDATA <= 0x00000000
-                            self.bus.PSLVERR <= 1
+                            self.bus.PRDATA.value = 0x00000000
+                            if hasattr(bus,'PSLVERR'):
+                                self.bus.PSLVERR.value = 1
                         else:
 
                             # is the address within bounds?
                             if word_index-1 > len(self.registers):
                                 self.entity._log.info("APB slave given invalid address. Providing ERROR response.")
-                                self.bus.PSLVERR <= 1
+                                if hasattr(bus,'PSLVERR'):
+                                    self.bus.PSLVERR.value = 1
 
                             else:
                                 # place data on the bus
                                 if pwrite[self.bus.PWRITE.value.integer] == 'READ':
-                                    self.bus.PRDATA <= self.registers[word_index]
+                                    self.bus.PRDATA.value = self.registers[word_index]
 
 
-                        self.bus.PREADY <= 1
+                        self.bus.PREADY.value = 1
                         state = 'ACCESS'
 
             # sample the data
@@ -579,9 +582,10 @@ class APBSlaveDriver(BusMonitor):
                         self.registers[word_index] = self.bus.PWDATA.value.integer
 
                 # reset the bus values
-                self.bus.PRDATA  <= 0
-                self.bus.PREADY  <= 1
-                self.bus.PSLVERR <= 0
+                self.bus.PRDATA.value = 0
+                self.bus.PREADY.value = 1
+                if hasattr(bus,'PSLVERR'):
+                    self.bus.PSLVERR.value = 0
                 state = 'IDLE'
 
             await RisingEdge(self.clock)
